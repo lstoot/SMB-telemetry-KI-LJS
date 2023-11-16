@@ -11,104 +11,180 @@
   library(readr)
 }
 
-dat <- read_rds(here("Saved Data", 
-                     "daily_mean_sensor_sp.rds"))
+# ---- bring in data and the model for plotting ---- 
+dat <- read_rds(here("Data",
+                     "Daily SMB Depth Data", 
+                     "daily_smb_depth_data.rds"))
 
 m1 <- read_rds(here("model objects", 
-                    "lt_smb_gamm_depth.rds"))
+                    "smb_gamm_depth.rds"))
 
+glimspe(dat)
+glimpse(m1)
+# model family = Gamma(link = "log"), 
 
+# ---- create predicted values from the model ---- 
+
+# blank floy_tag and year to remove from model fit 
 dat <- dat %>% 
-  filter(sensor_unit == "m" & mean_value > 0) %>% 
   mutate(
     floy_tag = "a", 
     year = "b"
   )
 
-fit <- predict.gam(m1, newdata = dat, type = "link", discrete = TRUE, 
-                   exclude = "s(floy_tag, year)", se.fit = TRUE)
+# create model fit from predict
+fit <- predict.gam(m1, newdata = dat, discrete = TRUE, 
+                   exclude = c("s(floy_tag)", "s(year)"), se.fit = TRUE)
 
 
-preds <- tibble(dat, 
-                .fit = fit$fit, 
-                .se.fit = fit$se.fit) %>% 
+# ---- convert fit to preds dataframe that can be used for plotting ----
+preds <- data.frame(dat, fit) %>% 
   mutate(
-    .fit = exp(1) ^ .fit, 
-    .se.fit = exp(1) ^ .se.fit, 
-    lower = .fit - 1.96 * .se.fit,
-    upper = .fit + 1.96 * .se.fit, 
-  )
+    lower = exp(1) ^ (fit - 1.96 * se.fit),
+    upper = exp(1) ^ (fit + 1.96 * se.fit), 
+    fit = exp(1) ^ fit, 
+  ) %>% 
+  as_tibble()
 
+glimpse(preds)
+
+
+# ---- create mean depth regardless of floy_tag ----
 dat %>%
-  group_by(doy, species) %>%
+  group_by(doy, fish_basin) %>%
   summarise(mean_depth = mean(mean_value)) %>%
   ungroup() -> mean_depth
 
-ggplot(data = preds) +
-  # geom_rect(data = rect_summer, aes(xmin = xmin,
-  #                                   xmax = xmax,
-  #                                   ymin = ymin,
-  #                                   ymax = ymax),
-  #           fill = "grey80",
-  #           alpha = 0.75,
-  #           inherit.aes = FALSE) +
-  # geom_rect(data = rect_winter, aes(xmin = xmin,
-  #                                   xmax = xmax,
-  #                                   ymin = ymin,
-  #                                   ymax = ymax),
-  #           fill ="grey80",
-  #           alpha = 0.75,
-  #           inherit.aes = FALSE) +
-  # geom_text(
-  #   aes(x = xmin + 30, y = 125, label = season),
-  #   data = rect_summer,
-  #   size = 5, vjust = 0, hjust = 0, check_overlap = TRUE) +
-  # geom_text(
-  #   aes(x = xmin + 32, y = 125, label = season),
-  #   data = rect_winter,
-  #   size = 5, vjust = 0, hjust = 0, check_overlap = TRUE) +
-  # geom_point(data = mean_rmr, aes(x = doy_id, y = mean_rmr,
-  #                                  colour = fish_basin,
-  # ), alpha = 0.25, size = 2.75) +
+# ---- plotting prep -------
+# ---- create monthly breaks ---- 
+
+# create vector of the DOY that each Month starts 
+month_doy <- preds %>%
+  group_by(month) %>%
+  summarise(first = first(doy),
+            last = last(doy)) %>%
+  ungroup() %>%
+  arrange(first) %>% 
+  mutate(
+    month_abb = factor(month.abb,
+                       levels = month.abb
+    )) %>%
+  arrange(month_abb) %>%
+  .$first
+
+month_doy
+
+# create month labels 
+month_label <- factor(month.abb, levels = month.abb)
+
+month_label
+
+# ---- create season bars ----
+
+# figure out where your shading for summer and winter goes 
+
+rect_winter <- tibble(
+  season = "Winter",
+  xmin = 1,
+  xmax = 60,
+  ymin = -Inf,
+  ymax = Inf
+)
+
+rect_summer <- tibble(
+  season = "Summer",
+  xmin = 152,
+  xmax = 244,
+  ymin = -Inf,
+  ymax = Inf
+)
+
+rect_winter_dec <- tibble(
+  season = "Winter",
+  xmin = 335,
+  xmax = 365,
+  ymin = -Inf,
+  ymax = Inf
+)
+
+# ---- create plot ----- 
+p <- ggplot(data = preds) +
+  # turn this on and off if you want the bars 
+  geom_rect(data = rect_summer, aes(xmin = xmin,
+                                    xmax = xmax,
+                                    ymin = ymin,
+                                    ymax = ymax),
+            fill = "grey80",
+            alpha = 0.75,
+            inherit.aes = FALSE) +
+  geom_rect(data = rect_winter, aes(xmin = xmin,
+                                    xmax = xmax,
+                                    ymin = ymin,
+                                    ymax = ymax),
+            fill ="grey80",
+            alpha = 0.75,
+            inherit.aes = FALSE) +
+  geom_rect(data = rect_winter_dec, aes(xmin = xmin,
+                                        xmax = xmax,
+                                        ymin = ymin,
+                                        ymax = ymax),
+            fill ="grey80",
+            alpha = 0.75,
+            inherit.aes = FALSE) +
+  geom_text(
+    aes(x = xmin + 33, y = 40, label = season),
+    data = rect_summer,
+    size = 5, vjust = 0, hjust = 0, check_overlap = TRUE) +
+  geom_text(
+    aes(x = xmin + 17.5, y = 40, label = season),
+    data = rect_winter,
+    size = 5, vjust = 0, hjust = 0, check_overlap = TRUE) +
+  geom_text(
+    aes(x = xmin + 5, y = 40, label = season),
+    data = rect_winter_dec,
+    size = 5, vjust = 0, hjust = 0, check_overlap = TRUE) + 
+  # this section above can be turned on and off by commenting
   geom_point(data = mean_depth, aes(x = doy, y = mean_depth,
-                                  colour = species), 
-  alpha = 0.5, size = 3) +
-  
+                                    colour = fish_basin), 
+             alpha = 0.5, size = 3) +
+  geom_hline(yintercept = 0, linetype = 2) + 
   geom_line(
-    aes(x = doy, y = .fit, colour = species), linewidth = 1) +
+    aes(x = doy, y = fit, colour = fish_basin), linewidth = 1) +
   geom_ribbon(
     aes(ymin = lower,
         ymax = upper,
-        x = doy, y = .fit,
-        fill = species), alpha = 0.25) +
-  scale_y_reverse() + 
-  lemon::facet_rep_wrap(ncol = 1, . ~ fish_basin, repeat.tick.labels = TRUE) + 
-  # scale_y_continuous(breaks = seq(45, 135, 15)) +
-  # scale_x_continuous(breaks = seq(09, 344, 67),
-  #                    label = month_label) +
-  scale_colour_viridis_d(name = "Species",
+        x = doy, y = fit,
+        fill = fish_basin), alpha = 0.25) +
+  scale_y_reverse(breaks = rev(seq(0, 40, 5))) +
+  scale_x_continuous(breaks = month_doy,
+                     label = month_label) +
+  scale_colour_viridis_d(name = "Basin",
                          option = "G", begin = 0.35, end = 0.75) +
-  scale_fill_viridis_d(name = "Species",
+  scale_fill_viridis_d(name = "Basin",
                        option = "G", begin = 0.35, end = 0.75) +
-  # scale_x_date(date_breaks = "2 month", date_labels = "%b %Y") +
-  
-  # facet_rep_wrap(.~ floy_tag, repeat.tick.labels = TRUE,
-  #                # ncol = 1
-  # ) +
   theme_bw(base_size = 15) +
   theme(panel.grid = element_blank(),
-        # strip.text = element_blank(),
         axis.text = element_text(colour = "black"),
-        legend.position = c(0.95, 0.92),
+        legend.position = c(0.95, 0.86),
         legend.background = element_blank(),
         legend.title = element_text(hjust = 0.5),
         legend.text = element_text(hjust = 0.5)) +
   labs(x = "Date",
-       y = "Depth Use (m)") -> p 
+       y = "Depth Use (m)") 
 
-p
+# p
+
+# ggsave(here("Plots", 
+#             "Depth Daily GAMM", 
+#             "smb_daily_depth_GAMM_no_bars.png"), plot = p, height = 7, 
+#        width = 11)
 
 
+  
+ggsave(here("Plots", 
+            "Depth Daily GAMM", 
+            "smb_daily_depth_GAMM_bars.png"), plot = p, height = 7, 
+       width = 11)
 
 
 
