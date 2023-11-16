@@ -28,9 +28,9 @@ ggplot(data = dat, aes(x = mean_value)) +
 # ---- create gam models -----
 
 m <- bam(mean_value ~ fish_basin +
-           ti(doy, fish_basin, bs = c("cc", "fs"), 
-             k = c(15, 3)) + 
-           s(doy, by = fish_basin, k = 15, bs = "cc") +
+           # ti(doy, fish_basin, bs = c("cc", "fs"), 
+           #   k = c(15, 3)) + 
+           s(doy, by = fish_basin, k = 13, bs = "cc") +
            s(floy_tag, bs = "re") + 
            s(year, bs = "re"),
          method = "fREML", 
@@ -47,9 +47,10 @@ m1 <- update(m,
   AR.start = start_event
 )
 
+plot(m1)
 
 # gam.check(m)
-gam.check(m1)
+# gam.check(m1)
 appraise(m)
 appraise(m1)
 
